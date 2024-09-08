@@ -1,7 +1,7 @@
 from typing import List, TypedDict
 
 from pydantic import BaseModel, validator
-from pinecone.core.client.models import Vector
+from pinecone import Vector
 
 
 class MissingFieldsError(Exception):

@@ -3,8 +3,7 @@ import time
 import logging
 from typing import List, Tuple
 
-from pinecone import Pinecone
-from pinecone.core.client.models import ScoredVector
+from pinecone import Pinecone, ScoredVector
 from urllib3.exceptions import ProtocolError
 
 from align_data.embeddings.embedding_utils import get_embedding
