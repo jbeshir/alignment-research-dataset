@@ -19,6 +19,7 @@ from sqlalchemy import (
     Boolean,
     func,
     event,
+    Index,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -29,6 +30,7 @@ from sqlalchemy.orm import (
 )
 from sqlalchemy.orm.attributes import get_history
 from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.types import TypeDecorator, Text as SQLText
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from align_data.embeddings.pinecone.pinecone_models import PineconeMetadata
@@ -41,6 +43,41 @@ class Base(DeclarativeBase):
     pass
 
 
+class VectorType(TypeDecorator):
+    """Custom type for MySQL VECTOR columns"""
+    impl = SQLText
+    cache_ok = True
+
+    def __init__(self, dimension=1024):
+        self.dimension = dimension
+        super().__init__()
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'mysql':
+            return dialect.type_descriptor(SQLText())
+        return dialect.type_descriptor(SQLText())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if isinstance(value, (list, tuple)):
+            # Convert list/tuple to string representation for MySQL VECTOR
+            return str(value)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        # Parse string back to list if needed
+        if isinstance(value, str) and value.startswith('['):
+            try:
+                import ast
+                return ast.literal_eval(value)
+            except:
+                return value
+        return value
+
+
 class Summary(Base):
     __tablename__ = "summaries"
 
@@ -50,6 +87,31 @@ class Summary(Base):
     article_id: Mapped[str] = mapped_column(ForeignKey("articles.id"))
 
     article: Mapped["Article"] = relationship(back_populates="summaries")
+
+
+class ArticleEmbedding(Base):
+    __tablename__ = "article_embeddings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    article_hash_id: Mapped[str] = mapped_column(String(32), ForeignKey("articles.hash_id", ondelete="CASCADE"), nullable=False)
+    chunk_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding_vector: Mapped[str] = mapped_column(VectorType(1024), nullable=False)
+    text: Mapped[str] = mapped_column(LONGTEXT, nullable=False)
+    date_created: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    date_updated: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=func.current_timestamp())
+
+    # Relationships
+    article: Mapped["Article"] = relationship(back_populates="embeddings")
+
+    # Table constraints and indexes
+    __table_args__ = (
+        Index('idx_article_hash_id', 'article_hash_id'),
+        Index('idx_chunk_id', 'chunk_id'),
+        Index('idx_article_chunk_unique', 'article_hash_id', 'chunk_id', unique=True),
+    )
+
+    def __repr__(self) -> str:
+        return f"ArticleEmbedding(id={self.id!r}, article_hash_id={self.article_hash_id!r}, chunk_id={self.chunk_id!r})"
 
 
 class PineconeStatus(enum.Enum):
@@ -103,6 +165,9 @@ class Article(Base):
     )
 
     summaries: Mapped[List["Summary"]] = relationship(
+        back_populates="article", cascade="all, delete-orphan"
+    )
+    embeddings: Mapped[List["ArticleEmbedding"]] = relationship(
         back_populates="article", cascade="all, delete-orphan"
     )
 
