@@ -111,7 +111,7 @@ class GreaterWrong(AlignmentDataset):
                 terms: {{
                     excludeEvents: {str(exclude_events).lower()}
                     view: "old"
-                    af: {self.af}
+                    af: {str(self.af).lower()}
                     limit: {self.limit}
                     karmaThreshold: {karma_threshold}
                     after: "{after}"
@@ -157,7 +157,36 @@ class GreaterWrong(AlignmentDataset):
             },
             json={"query": query},
         )
-        return res.json()["data"]["posts"]
+        
+        # Check for non-200 status codes
+        if res.status_code != 200:
+            logger.error(
+                "HTTP request failed with status %d for URL %s", 
+                res.status_code, 
+                f"{self.base_url}/graphql"
+            )
+            logger.error("Response content: %s", res.text)
+            res.raise_for_status()  # This will raise an HTTPError for bad status codes
+        
+        try:
+            response_data = res.json()
+        except ValueError as e:
+            logger.error("Failed to parse JSON response: %s", str(e))
+            logger.error("Response content: %s", res.text)
+            raise
+        
+        # Check if the expected data structure exists
+        if "data" not in response_data:
+            logger.error("Response missing 'data' field")
+            logger.error("Full response: %s", response_data)
+            raise ValueError("Invalid GraphQL response: missing 'data' field")
+        
+        if "posts" not in response_data["data"]:
+            logger.error("Response data missing 'posts' field")
+            logger.error("Full response: %s", response_data)
+            raise ValueError("Invalid GraphQL response: missing 'posts' field in data")
+        
+        return response_data["data"]["posts"]
 
     @property
     def last_date_published(self) -> str:
