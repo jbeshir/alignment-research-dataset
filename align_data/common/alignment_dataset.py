@@ -6,12 +6,11 @@ from dataclasses import dataclass, field, KW_ONLY
 from pathlib import Path
 from typing import Iterable, List, Optional, Set, Tuple, Generator
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import joinedload
 
 import pytz
 from sqlalchemy import select, Select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, Session
 import jsonlines
 from dateutil.parser import parse, ParserError
@@ -53,7 +52,7 @@ class AlignmentDataset:
     lazy_eval = False
     """Whether to lazy fetch items. This is nice in that it will start processing, but messes up the progress bar."""
 
-    batch_size = 20
+    batch_size = 5
     """The number of items to collect before flushing to the database."""
 
     def __post_init__(self):
@@ -109,23 +108,63 @@ class AlignmentDataset:
             try:
                 session.commit()
                 return True
-            except IntegrityError:
+            except IntegrityError as e:
+                logger.warning(f"Commit failed due to integrity error in {self.name}: {e}")
+                session.rollback()
+                return False
+            except OperationalError as e:
+                if "max_allowed_packet" in str(e):
+                    logger.error(f"Commit failed due to packet size limit in {self.name}: {e}")
+                    session.rollback()
+                    return "packet_size_error"
+                else:
+                    logger.error(f"Commit failed due to operational error in {self.name}: {e}")
+                    session.rollback()
+                    return False
+            except Exception as e:
+                logger.error(f"Unexpected commit failure in {self.name}: {type(e).__name__}: {e}")
                 session.rollback()
                 return False
 
         items = iter(entries)
-        while batch := tuple(islice(items, self.batch_size)):
-            logger.info(f"Adding batch of {len(batch)} entries to {self.name}")
+        current_batch_size = self.batch_size
+        
+        while batch := tuple(islice(items, current_batch_size)):
+            logger.info(f"Adding batch of {len(batch)} entries to {self.name} (batch_size: {current_batch_size})")
             with make_session() as session:
                 self._add_batch(session, batch)
-                # there might be duplicates in the batch, so if they cause
-                # an exception, try to commit them one by one
-                if not commit():
+                commit_result = commit()
+                
+                if commit_result == "packet_size_error":
+                    # Reduce batch size and retry
+                    if current_batch_size > 1:
+                        new_batch_size = max(1, current_batch_size // 2)
+                        logger.warning(f"Reducing batch size from {current_batch_size} to {new_batch_size} due to packet size limit")
+                        current_batch_size = new_batch_size
+                        # Put items back into iterator and retry with smaller batch
+                        items = iter(list(batch) + list(items))
+                        continue
+                    else:
+                        logger.error(f"Cannot reduce batch size further, skipping problematic entries in {self.name}")
+                        for entry in batch:
+                            logger.error(f"Skipping large entry in {self.name}: {getattr(entry, 'title', 'Unknown')}")
+                elif not commit_result:
+                    # Handle other commit failures (duplicates, etc.)
+                    logger.info(f"Batch commit failed for {self.name}, attempting individual commits")
                     for entry in batch:
                         session.add(entry)
-                        if not commit():
-                            logger.error(f"found duplicate of {entry}")
-                logger.info(f"Committed batch of {len(batch)} entries to {self.name}")
+                        individual_result = commit()
+                        if individual_result == "packet_size_error":
+                            logger.error(f"Individual entry too large for {self.name}: {getattr(entry, 'title', 'Unknown')}")
+                        elif not individual_result:
+                            logger.error(f"Individual commit failed for entry in {self.name}: {entry}")
+                else:
+                    # Success - gradually increase batch size back up if it was reduced
+                    if current_batch_size < self.batch_size:
+                        current_batch_size = min(self.batch_size, current_batch_size + 1)
+                    logger.info(f"Committed batch of {len(batch)} entries to {self.name}")
+                    
+            logger.info(f"Completed processing batch for {self.name}")
 
     def setup(self):
         self._outputted_items = self._load_outputted_items()
