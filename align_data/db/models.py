@@ -17,6 +17,7 @@ from sqlalchemy import (
     Text,
     Float,
     Boolean,
+    Integer,
     func,
     event,
     Index,

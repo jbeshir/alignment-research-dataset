@@ -93,3 +93,71 @@ def get_pinecone_to_delete_by_ids(
     hash_ids: List[str],
 ):
     return get_pinecone_articles_to_remove(session).filter(Article.id.in_(hash_ids))
+
+
+# MySQL Vector query functions
+def get_mysql_vector_articles(
+    session: Session,
+    force_update: bool = False,
+    statuses: List[PineconeStatus] = [PineconeStatus.pending_addition],
+):
+    """Get articles for MySQL vector processing, mirroring Pinecone logic."""
+    return (
+        session.query(Article)
+        .filter(or_(Article.pinecone_status.in_(statuses), force_update))
+        .filter(Article.is_valid)
+        .filter(or_(Article.confidence == None, Article.confidence >= MIN_CONFIDENCE))
+    )
+
+
+def get_mysql_vector_articles_by_sources(
+    session: Session,
+    custom_sources: List[str],
+    force_update: bool = False,
+    statuses: List[PineconeStatus] = [PineconeStatus.pending_addition],
+):
+    """Get articles by source for MySQL vector processing."""
+    return get_mysql_vector_articles(session, force_update, statuses).filter(
+        Article.source.in_(custom_sources)
+    )
+
+
+def get_mysql_vector_articles_by_ids(
+    session: Session,
+    hash_ids: List[str],
+    force_update: bool = False,
+    statuses: List[PineconeStatus] = [PineconeStatus.pending_addition],
+):
+    """Get articles by ID for MySQL vector processing."""
+    return get_mysql_vector_articles(session, force_update, statuses).filter(
+        Article.id.in_(hash_ids)
+    )
+
+
+def get_mysql_vector_articles_to_remove(session: Session):
+    """Get articles that need MySQL vector embeddings removed, mirroring Pinecone logic."""
+    return session.query(Article).filter(
+        or_(
+            Article.pinecone_status == PineconeStatus.pending_removal,
+            Article.is_valid == False,
+            Article.confidence < MIN_CONFIDENCE,
+        )
+    )
+
+
+def get_mysql_vector_to_delete_by_sources(
+    session: Session,
+    custom_sources: List[str],
+):
+    """Get articles by source for MySQL vector deletion."""
+    return get_mysql_vector_articles_to_remove(session).filter(
+        Article.source.in_(custom_sources)
+    )
+
+
+def get_mysql_vector_to_delete_by_ids(
+    session: Session,
+    hash_ids: List[str],
+):
+    """Get articles by ID for MySQL vector deletion."""
+    return get_mysql_vector_articles_to_remove(session).filter(Article.id.in_(hash_ids))

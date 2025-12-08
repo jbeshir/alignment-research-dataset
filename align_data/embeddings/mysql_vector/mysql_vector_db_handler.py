@@ -136,7 +136,7 @@ class MySQLVectorDB:
             List of dictionaries containing similarity results with metadata:
             - chunk_id: The chunk identifier
             - article_hash_id: The article hash ID
-            - similarity_score: The similarity score
+            - similarity_score: The similarity score (cosine similarity)
             - text: The chunk text
             - article_title: The article title
             - article_url: The article URL
@@ -155,7 +155,14 @@ class MySQLVectorDB:
         
         try:
             with self.session_factory() as session:
+                # Convert query vector to string format for MySQL VECTOR operations
+                query_vector_str = str(query_vector)
+                
                 # Build the base query with JOIN to articles table
+                # Use MySQL's VECTOR_DISTANCE function for cosine similarity
+                # Note: MySQL 8.0.34+ supports VECTOR data type and similarity functions
+                similarity_expr = text(f"(1 - VECTOR_DISTANCE(embedding_vector, '{query_vector_str}', 'COSINE')) AS similarity_score")
+                
                 query = session.query(
                     ArticleEmbedding.chunk_id,
                     ArticleEmbedding.article_hash_id,
@@ -165,10 +172,7 @@ class MySQLVectorDB:
                     Article.source.label('article_source'),
                     Article.authors.label('article_authors'),
                     Article.date_published,
-                    # Use MySQL's vector similarity function
-                    # For now, we'll use a placeholder for similarity calculation
-                    # In a real implementation, this would use MySQL's vector similarity functions
-                    text("1.0").label('similarity_score')
+                    similarity_expr
                 ).join(
                     Article, ArticleEmbedding.article_hash_id == Article.id
                 ).filter(
@@ -181,9 +185,8 @@ class MySQLVectorDB:
                         ArticleEmbedding.article_hash_id.notin_(exclude_hash_ids)
                     )
                 
-                # For now, we'll order by date_published as a placeholder
-                # In a real implementation, this would order by similarity score
-                query = query.order_by(Article.date_published.desc())
+                # Order by similarity score (highest first)
+                query = query.order_by(text("similarity_score DESC"))
                 
                 # Limit results
                 query = query.limit(top_k)
@@ -248,13 +251,10 @@ class MySQLVectorDB:
                 for embedding in embeddings:
                     try:
                         # Parse the vector string back to list
-                        if isinstance(embedding.embedding_vector, str):
-                            import ast
-                            vector = ast.literal_eval(embedding.embedding_vector)
-                        else:
-                            vector = embedding.embedding_vector
-                        vectors.append(vector)
-                    except (ValueError, SyntaxError) as e:
+                        vector = self._parse_vector_string(embedding.embedding_vector)
+                        if vector is not None:
+                            vectors.append(vector)
+                    except Exception as e:
                         logger.warning(f"Failed to parse embedding vector for article {article_hash_id}: {e}")
                         continue
                 
@@ -268,6 +268,11 @@ class MySQLVectorDB:
                 else:
                     # Calculate element-wise average
                     vector_length = len(vectors[0])
+                    # Validate all vectors have the same length
+                    if not all(len(v) == vector_length for v in vectors):
+                        logger.error(f"Inconsistent vector dimensions for article {article_hash_id}")
+                        return None
+                    
                     average_embedding = []
                     for i in range(vector_length):
                         avg_value = sum(vector[i] for vector in vectors) / len(vectors)
@@ -282,3 +287,47 @@ class MySQLVectorDB:
         except Exception as e:
             logger.error(f"Unexpected error calculating average embedding for article {article_hash_id}: {e}")
             raise
+    
+    def _parse_vector_string(self, vector_str: str) -> Optional[List[float]]:
+        """
+        Parse a vector string representation back to a list of floats.
+        
+        Args:
+            vector_str: String representation of the vector
+            
+        Returns:
+            List of floats, or None if parsing fails
+        """
+        if not vector_str:
+            return None
+            
+        try:
+            # Handle different possible formats
+            if isinstance(vector_str, str):
+                # Try to parse as Python literal (list format)
+                import ast
+                try:
+                    parsed = ast.literal_eval(vector_str)
+                    if isinstance(parsed, list) and all(isinstance(x, (int, float)) for x in parsed):
+                        return [float(x) for x in parsed]
+                except (ValueError, SyntaxError):
+                    pass
+                
+                # Try to parse as JSON array
+                import json
+                try:
+                    parsed = json.loads(vector_str)
+                    if isinstance(parsed, list) and all(isinstance(x, (int, float)) for x in parsed):
+                        return [float(x) for x in parsed]
+                except (ValueError, json.JSONDecodeError):
+                    pass
+                    
+            # If it's already a list, validate and convert
+            elif isinstance(vector_str, list):
+                if all(isinstance(x, (int, float)) for x in vector_str):
+                    return [float(x) for x in vector_str]
+                    
+            return None
+            
+        except Exception:
+            return None

@@ -278,6 +278,34 @@ class TestQuerySimilarVectors:
         assert result['text'] == "Sample text"
         assert result['article_title'] == "Sample Title"
         assert result['similarity_score'] == 0.95
+        
+    def test_query_similar_vectors_mysql_vector_distance(self, mysql_vector_db, mock_session_factory):
+        """Test that MySQL VECTOR_DISTANCE function is used correctly."""
+        mock_session = mock_session_factory.return_value.__enter__.return_value
+        mock_query = Mock()
+        mock_session.query.return_value = mock_query
+        mock_query.join.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
+        
+        query_vector = [0.1, 0.2, 0.3]
+        mysql_vector_db.query_similar_vectors(query_vector, top_k=5)
+        
+        # Verify that the query includes the vector similarity calculation
+        # The exact SQL text should include VECTOR_DISTANCE function
+        mock_session.query.assert_called()
+        call_args = mock_session.query.call_args[0]
+        
+        # Check that one of the query columns contains VECTOR_DISTANCE SQL
+        found_vector_distance = False
+        for arg in call_args:
+            if hasattr(arg, 'text') and 'VECTOR_DISTANCE' in str(arg.text):
+                found_vector_distance = True
+                break
+        
+        assert found_vector_distance, "Query should include VECTOR_DISTANCE function"
     
     def test_query_similar_vectors_with_exclusions(self, mysql_vector_db, mock_session_factory, mock_query_results):
         """Test vector similarity query with exclusions."""
@@ -361,7 +389,9 @@ class TestGetArticleAverageEmbedding:
         
         # Verify average calculation
         expected_average = [0.25, 0.35, 0.45]  # Average of [0.1,0.2,0.3] and [0.4,0.5,0.6]
-        assert result == expected_average
+        assert len(result) == len(expected_average)
+        for i, (actual, expected) in enumerate(zip(result, expected_average)):
+            assert abs(actual - expected) < 1e-10, f"Mismatch at index {i}: {actual} != {expected}"
     
     def test_get_article_average_embedding_single_vector(self, mysql_vector_db, mock_session_factory):
         """Test average calculation with single embedding."""
@@ -417,6 +447,25 @@ class TestGetArticleAverageEmbedding:
         
         assert result is None
     
+    def test_get_article_average_embedding_inconsistent_dimensions(self, mysql_vector_db, mock_session_factory):
+        """Test average calculation with inconsistent vector dimensions."""
+        mock_session = mock_session_factory.return_value.__enter__.return_value
+        mock_query = Mock()
+        mock_session.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        
+        # Mock embeddings with different dimensions
+        mock_embedding1 = Mock()
+        mock_embedding1.embedding_vector = "[0.1, 0.2, 0.3]"
+        mock_embedding2 = Mock()
+        mock_embedding2.embedding_vector = "[0.4, 0.5]"  # Different dimension
+        mock_query.all.return_value = [mock_embedding1, mock_embedding2]
+        
+        result = mysql_vector_db.get_article_average_embedding("test_hash")
+        
+        # Should return None due to inconsistent dimensions
+        assert result is None
+    
     def test_get_article_average_embedding_sqlalchemy_error(self, mysql_vector_db, mock_session_factory):
         """Test average calculation with SQLAlchemy error."""
         mock_session = mock_session_factory.return_value.__enter__.return_value
@@ -424,3 +473,52 @@ class TestGetArticleAverageEmbedding:
         
         with pytest.raises(SQLAlchemyError):
             mysql_vector_db.get_article_average_embedding("test_hash")
+
+
+class TestParseVectorString:
+    """Test suite for _parse_vector_string method."""
+    
+    @pytest.fixture
+    def mysql_vector_db(self):
+        """Create MySQLVectorDB instance for testing."""
+        return MySQLVectorDB()
+    
+    def test_parse_vector_string_python_list_format(self, mysql_vector_db):
+        """Test parsing Python list format string."""
+        vector_str = "[0.1, 0.2, 0.3]"
+        result = mysql_vector_db._parse_vector_string(vector_str)
+        assert result == [0.1, 0.2, 0.3]
+    
+    def test_parse_vector_string_json_format(self, mysql_vector_db):
+        """Test parsing JSON array format string."""
+        vector_str = '[0.1, 0.2, 0.3]'
+        result = mysql_vector_db._parse_vector_string(vector_str)
+        assert result == [0.1, 0.2, 0.3]
+    
+    def test_parse_vector_string_already_list(self, mysql_vector_db):
+        """Test parsing when input is already a list."""
+        vector_list = [0.1, 0.2, 0.3]
+        result = mysql_vector_db._parse_vector_string(vector_list)
+        assert result == [0.1, 0.2, 0.3]
+    
+    def test_parse_vector_string_empty_input(self, mysql_vector_db):
+        """Test parsing empty input."""
+        result = mysql_vector_db._parse_vector_string("")
+        assert result is None
+        
+        result = mysql_vector_db._parse_vector_string(None)
+        assert result is None
+    
+    def test_parse_vector_string_invalid_format(self, mysql_vector_db):
+        """Test parsing invalid format."""
+        result = mysql_vector_db._parse_vector_string("invalid_format")
+        assert result is None
+        
+        result = mysql_vector_db._parse_vector_string("[0.1, 'invalid']")
+        assert result is None
+    
+    def test_parse_vector_string_mixed_types(self, mysql_vector_db):
+        """Test parsing with mixed int/float types."""
+        vector_str = "[1, 2.5, 3]"
+        result = mysql_vector_db._parse_vector_string(vector_str)
+        assert result == [1.0, 2.5, 3.0]

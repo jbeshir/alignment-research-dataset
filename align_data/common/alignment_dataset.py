@@ -10,7 +10,8 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import joinedload
 
 import pytz
-from sqlalchemy import select, Select
+from sqlalchemy import select
+from sqlalchemy.sql import Select
 from sqlalchemy.orm import joinedload, Session
 import jsonlines
 from dateutil.parser import parse, ParserError

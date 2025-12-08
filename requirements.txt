@@ -15,20 +15,34 @@ codaio==0.6.12
 python-dotenv==1.0.0
 pypdf==5.5.0
 pycryptodome==3.19.0
-google-auth==2.23.4
+
+# Google API packages with compatible versions
+google-auth>=1.25.0,<2.0.0
 google-auth-httplib2==0.1.1
-google-auth-oauthlib==1.1.0
-google-api-python-client==2.106.0
-gspread==5.12.0
+google-auth-oauthlib>=0.4.0,<2.0.0
+google-api-python-client>=2.0.0,<3.0.0
+google-api-core>=1.31.0,<2.0.0
+gspread>=5.0.0,<6.0.0
+
 youtube-transcript-api==0.6.1
 airtable==0.4.8
 
+# Database packages
 alembic==1.12.1
-mysql-connector-python==8.2.0
+# Use PyMySQL instead of mysql-connector-python to avoid protobuf conflicts
+PyMySQL>=1.0.0
+cryptography>=3.0.0
 
+# Core packages
 pandas
 transformers
 tqdm==4.66.1
 openai
-pinecone
+pinecone-client
 voyageai==0.3.3
+
+# Additional dependencies that might be needed
+sqlalchemy>=2.0.0,<3.0.0
+pytz
+requests
+urllib3
