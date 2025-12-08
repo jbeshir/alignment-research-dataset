@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 import logging
 import time
@@ -13,6 +14,7 @@ from align_data.common.alignment_dataset import AlignmentDataset
 from align_data.db.session import make_session
 from align_data.db.models import Article
 from align_data.sources.greaterwrong.config import SOURCE_CONFIG, get_source_config
+from align_data.settings import LW_GRAPHQL_ACCESS
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +95,8 @@ class GreaterWrong(AlignmentDataset):
         authors = ",".join(self.extract_authors(item))
 
         return (
-            url not in self._outputted_items[0] and (title, authors) not in self._outputted_items[1]
+            url not in self._outputted_items[0]
+            and (title, authors) not in self._outputted_items[1]
         )
 
     def _get_published_date(self, item):
@@ -111,7 +114,7 @@ class GreaterWrong(AlignmentDataset):
                 terms: {{
                     excludeEvents: {str(exclude_events).lower()}
                     view: "old"
-                    af: {str(self.af).lower()}
+                    af: {json.dumps(self.af)}
                     limit: {self.limit}
                     karmaThreshold: {karma_threshold}
                     after: "{after}"
@@ -142,6 +145,9 @@ class GreaterWrong(AlignmentDataset):
                         displayName
                     }}
                     af
+                    contents {{
+                        markdown
+                    }}
                     htmlBody
                 }}
             }}
@@ -149,44 +155,58 @@ class GreaterWrong(AlignmentDataset):
         """
 
     def fetch_posts(self, query: str):
-        res = requests.post(
-            f"{self.base_url}/graphql",
-            # The GraphQL endpoint returns a 403 if the user agent isn't set... Makes sense, but is annoying
-            headers={
-                "User-Agent": "Mozilla /5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/113.0"
-            },
-            json={"query": query},
-        )
-        
-        # Check for non-200 status codes
-        if res.status_code != 200:
-            logger.error(
-                "HTTP request failed with status %d for URL %s", 
-                res.status_code, 
-                f"{self.base_url}/graphql"
-            )
-            logger.error("Response content: %s", res.text)
-            res.raise_for_status()  # This will raise an HTTPError for bad status codes
-        
+        url = f"{self.base_url}/graphql"
+        headers = {
+           # The GraphQL endpoint returns a 403 if the user agent isn't set... Makes sense, but is annoying
+            "User-Agent": "Mozilla /5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/113.0"
+        }
+
+        # Add LessWrong bot-bypass header if configured
+        if LW_GRAPHQL_ACCESS:
+            header_name, header_value = LW_GRAPHQL_ACCESS.split(":", 1)
+            headers[header_name.strip()] = header_value.strip()
+
+        logger.info(f"Fetching posts from {url}")
+
         try:
-            response_data = res.json()
-        except ValueError as e:
-            logger.error("Failed to parse JSON response: %s", str(e))
-            logger.error("Response content: %s", res.text)
+            res = requests.post(
+                url,
+                headers=headers,
+                json={"query": query},
+                timeout=30,
+            )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request to {url} failed: {e}")
             raise
-        
-        # Check if the expected data structure exists
-        if "data" not in response_data:
-            logger.error("Response missing 'data' field")
-            logger.error("Full response: %s", response_data)
-            raise ValueError("Invalid GraphQL response: missing 'data' field")
-        
-        if "posts" not in response_data["data"]:
-            logger.error("Response data missing 'posts' field")
-            logger.error("Full response: %s", response_data)
-            raise ValueError("Invalid GraphQL response: missing 'posts' field in data")
-        
-        return response_data["data"]["posts"]
+
+        logger.info(f"Response status code: {res.status_code}")
+
+        if res.status_code != 200:
+            logger.error(f"GraphQL request to {url} failed with status {res.status_code}")
+            logger.error(f"Response headers: {dict(res.headers)}")
+            logger.error(f"Response body (first 1000 chars): {res.text[:1000]}")
+            raise Exception(
+                f"GraphQL request to {url} failed with status {res.status_code}. "
+                f"Response: {res.text[:200]}"
+            )
+
+        try:
+            data = res.json()
+        except Exception as e:
+            logger.error(f"Failed to parse JSON response from {url}")
+            logger.error(f"Response text (first 1000 chars): {res.text[:1000]}")
+            logger.error(f"Parse error: {e}")
+            raise Exception(f"Failed to parse JSON from {url}: {e}. Response: {res.text[:200]}")
+
+        if "data" not in data:
+            logger.error(f"Response missing 'data' field. Response: {data}")
+            raise Exception(f"GraphQL response missing 'data' field: {data}")
+
+        if "posts" not in data["data"]:
+            logger.error(f"Response missing 'posts' field. Response: {data}")
+            raise Exception(f"GraphQL response missing 'posts' field: {data}")
+
+        return data["data"]["posts"]
 
     @property
     def last_date_published(self) -> str:
@@ -221,7 +241,9 @@ class GreaterWrong(AlignmentDataset):
                 return
 
             for post in posts["results"]:
-                if post["htmlBody"] and self.tags_ok(post):
+                # Check if post has content (prefer markdown, fallback to htmlBody)
+                has_content = (post.get("contents") and post["contents"].get("markdown")) or post.get("htmlBody")
+                if has_content and self.tags_ok(post):
                     yield post
 
             last_item = posts["results"][-1]
@@ -242,10 +264,19 @@ class GreaterWrong(AlignmentDataset):
         return [a["displayName"] for a in authors] or ["anonymous"]
 
     def process_entry(self, item):
+        # Prefer markdown from contents field (preserves LaTeX), fallback to htmlBody
+        if item.get("contents") and item["contents"].get("markdown"):
+            text = item["contents"]["markdown"].strip()
+        elif item.get("htmlBody"):
+            # Fallback to htmlBody (LaTeX will be lost but at least we get the content)
+            text = markdownify(item["htmlBody"]).strip()
+        else:
+            raise ValueError(f"missing both htmlBody and contents.markdown on {item.get('title')!r} from {item.get('url')!r}")
+
         return self.make_data_entry(
             {
                 "title": item["title"],
-                "text": markdownify(item["htmlBody"]).strip(),
+                "text": text,
                 "url": item["pageUrl"],
                 "date_published": self._get_published_date(item),
                 "modified_at": item["modifiedAt"],

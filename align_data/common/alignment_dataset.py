@@ -6,11 +6,12 @@ from dataclasses import dataclass, field, KW_ONLY
 from pathlib import Path
 from typing import Iterable, List, Optional, Set, Tuple, Generator
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 import pytz
 from sqlalchemy import select, Select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload, Session
 import jsonlines
 from dateutil.parser import parse, ParserError
@@ -52,7 +53,7 @@ class AlignmentDataset:
     lazy_eval = False
     """Whether to lazy fetch items. This is nice in that it will start processing, but messes up the progress bar."""
 
-    batch_size = 5
+    batch_size = 20
     """The number of items to collect before flushing to the database."""
 
     def __post_init__(self):
@@ -67,6 +68,10 @@ class AlignmentDataset:
     def make_data_entry(self, data, **kwargs) -> Article:
         data = article_dict(data, **kwargs)
         summaries = data.pop("summaries", [])
+        # If summaries ended up inside meta (article_dict buckets non-main fields)
+        # pull them out so they become Summary rows rather than meta baggage.
+        if not summaries and isinstance(data.get("meta"), dict):
+            summaries = data["meta"].pop("summaries", [])
         article = Article(**data)
         article.summaries += [
             Summary(text=summary, source=self.name) for summary in summaries
@@ -104,67 +109,43 @@ class AlignmentDataset:
         session.add_all(batch)
 
     def add_entries(self, entries):
-        def commit() -> bool:
+        def is_duplicate_error(err: IntegrityError) -> bool:
+            msg = str(getattr(err, "orig", "")) or str(err)
+            return "Duplicate entry" in msg or "UNIQUE constraint failed" in msg
+
+        def commit(allow_duplicates=False, entry=None) -> bool:
             try:
                 session.commit()
                 return True
-            except IntegrityError as e:
-                logger.warning(f"Commit failed due to integrity error in {self.name}: {e}")
+            except IntegrityError as err:
                 session.rollback()
-                return False
-            except OperationalError as e:
-                if "max_allowed_packet" in str(e):
-                    logger.error(f"Commit failed due to packet size limit in {self.name}: {e}")
-                    session.rollback()
-                    return "packet_size_error"
-                else:
-                    logger.error(f"Commit failed due to operational error in {self.name}: {e}")
-                    session.rollback()
-                    return False
-            except Exception as e:
-                logger.error(f"Unexpected commit failure in {self.name}: {type(e).__name__}: {e}")
-                session.rollback()
-                return False
+                if is_duplicate_error(err):
+                    if allow_duplicates:
+                        logger.debug(
+                            "Duplicate entry skipped for %s: %s", self.name, entry
+                        )
+                        return False
+                    logger.error(
+                        "Duplicate entry encountered for %s: %s", self.name, entry
+                    )
+                    raise
+                logger.error(
+                    "Integrity error writing %s entry %s: %s", self.name, entry, err
+                )
+                raise
 
         items = iter(entries)
-        current_batch_size = self.batch_size
-        
-        while batch := tuple(islice(items, current_batch_size)):
-            logger.info(f"Adding batch of {len(batch)} entries to {self.name} (batch_size: {current_batch_size})")
+        while batch := tuple(islice(items, self.batch_size)):
+            logger.info(f"Adding batch of {len(batch)} entries to {self.name}")
             with make_session() as session:
                 self._add_batch(session, batch)
-                commit_result = commit()
-                
-                if commit_result == "packet_size_error":
-                    # Reduce batch size and retry
-                    if current_batch_size > 1:
-                        new_batch_size = max(1, current_batch_size // 2)
-                        logger.warning(f"Reducing batch size from {current_batch_size} to {new_batch_size} due to packet size limit")
-                        current_batch_size = new_batch_size
-                        # Put items back into iterator and retry with smaller batch
-                        items = iter(list(batch) + list(items))
-                        continue
-                    else:
-                        logger.error(f"Cannot reduce batch size further, skipping problematic entries in {self.name}")
-                        for entry in batch:
-                            logger.error(f"Skipping large entry in {self.name}: {getattr(entry, 'title', 'Unknown')}")
-                elif not commit_result:
-                    # Handle other commit failures (duplicates, etc.)
-                    logger.info(f"Batch commit failed for {self.name}, attempting individual commits")
+                # there might be duplicates in the batch, so if they cause
+                # an exception, try to commit them one by one
+                if not commit(allow_duplicates=True):
                     for entry in batch:
                         session.add(entry)
-                        individual_result = commit()
-                        if individual_result == "packet_size_error":
-                            logger.error(f"Individual entry too large for {self.name}: {getattr(entry, 'title', 'Unknown')}")
-                        elif not individual_result:
-                            logger.error(f"Individual commit failed for entry in {self.name}: {entry}")
-                else:
-                    # Success - gradually increase batch size back up if it was reduced
-                    if current_batch_size < self.batch_size:
-                        current_batch_size = min(self.batch_size, current_batch_size + 1)
-                    logger.info(f"Committed batch of {len(batch)} entries to {self.name}")
-                    
-            logger.info(f"Completed processing batch for {self.name}")
+                        commit(allow_duplicates=True, entry=entry)
+                logger.info(f"Committed batch of {len(batch)} entries to {self.name}")
 
     def setup(self):
         self._outputted_items = self._load_outputted_items()
@@ -225,7 +206,7 @@ class AlignmentDataset:
 
         items_to_process = filter(self.not_processed, items)
         logger.info(f"Outputted items: {len(self._outputted_items)}")
-        logger.info(f"Found items to process")
+        logger.info("Found items to process")
 
         if isinstance(items, list):
             logger.info(f"Found {len(items)} items to process")
@@ -254,7 +235,7 @@ class AlignmentDataset:
                 logger.error(e)
                 continue
 
-            logger.info(f"Yielding {item} from {self.name}")
+            logger.debug(f"Yielding {item} from {self.name}")
             yield entry
 
             if self.COOLDOWN:

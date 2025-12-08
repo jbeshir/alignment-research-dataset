@@ -1,0 +1,97 @@
+name: Fetch and Index Single Datasource
+
+on:
+  workflow_call:
+    inputs:
+      datasource:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      datasource:
+        description: 'The datasource to process'
+        type: choice
+        options:
+          - agentmodels
+          - agisf
+          - aisafety.info
+          - alignment_newsletter
+          - alignmentforum
+          - arbital
+          - arxiv
+          - blogs
+          - distill
+          - eaforum
+          - indices
+          - lesswrong
+          - special_docs
+          - youtube
+
+jobs:
+  fetch_dataset:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Setup Python environment
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.11'
+
+    - name: Install Pandoc
+      run: |
+        if [ "${{ inputs.datasource }}" = "gdocs" ]; then
+          sudo apt-get update
+          sudo apt-get -y install pandoc
+        fi
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Fetch dataset
+      env:
+        CODA_TOKEN: ${{ secrets.CODA_TOKEN }}
+        AIRTABLE_API_KEY: ${{ secrets.AIRTABLE_API_KEY }}
+        AGISF_AIRTABLE_BASE_ID: ${{ secrets.AGISF_AIRTABLE_BASE_ID }}
+        AGISF_AIRTABLE_TABLE_ID: ${{ secrets.AGISF_AIRTABLE_TABLE_ID }}
+        YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        ARD_DB_USER: ${{ secrets.ARD_DB_USER }}
+        ARD_DB_PASSWORD: ${{ secrets.ARD_DB_PASSWORD }}
+        ARD_DB_HOST: ${{ secrets.ARD_DB_HOST }}
+        ARD_DB_NAME: alignment_research_dataset
+        LW_GRAPHQL_ACCESS: ${{ secrets.LW_GRAPHQL_ACCESS }}
+      run: python main.py fetch ${{ inputs.datasource }}
+
+  update_index:
+    needs: fetch_dataset
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Setup Python environment
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Update Pinecone index
+      env:
+        ARD_DB_USER: ${{ secrets.ARD_DB_USER }}
+        ARD_DB_PASSWORD: ${{ secrets.ARD_DB_PASSWORD }}
+        ARD_DB_HOST: ${{ secrets.ARD_DB_HOST }}
+        ARD_DB_NAME: alignment_research_dataset
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+        PINECONE_ENVIRONMENT: ${{ secrets.PINECONE_ENVIRONMENT }}
+        VOYAGEAI_API_KEY: ${{ secrets.VOYAGEAI_API_KEY }}
+        LOG_LEVEL: INFO
+        USE_MODERATION: false
+      run: |
+        python main.py pinecone_update ${{ inputs.datasource }}
