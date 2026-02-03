@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 import re
 import tiktoken
 from dataclasses import dataclass
@@ -14,10 +13,6 @@ from align_data.settings import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-Vector = list[float]
-Embedding = tuple[str, Vector, dict[str, Any]]
 
 
 @dataclass
@@ -185,8 +180,12 @@ def chunks(
     Returns: (chunks_list, boundary_stats)
     where chunks_list contains (chunk_text, chars_before, chars_after)
     """
-    doc = re.sub(r"(?:(?<=\n)|^)(?:\.mjx|\.MJX|@font).*{.*}.*\n|(?:\s*\n){4,}", "", doc)
-    doc = re.sub(r"\S{60,}(?:\s+(?:\S{30,}))*", r"[! blob removed by s/\\S{60,}(?:\\s+(?:\\S{30,}))*/$this_msg/ !]", doc)
+    # Strip non-semantic garbage (URLs are kept - they're semantic)
+    doc = re.sub(r"(?:\s*\n){4,}", "\n\n", doc)  # collapse blank lines
+    doc = re.sub(r'data:[a-zA-Z0-9/;,=+-]+;base64,[A-Za-z0-9+/=\s]+', '[data-uri]', doc)
+    doc = re.sub(r"'{4,}", "'", doc)  # apostrophe corruption
+    doc = re.sub(r'(?<![:/\w])[A-Za-z0-9+/]{80,}={0,2}', '[base64]', doc)  # raw base64
+    doc = re.sub(r'(?:^|["\s])([MLHVCSQTAZmlhvcsqtaz][0-9,.\s-]{100,})(?:["\s]|$)', ' [svg] ', doc)
     doc = (
         doc
         .replace("<|endofprompt|>", "<endofprompt>")
@@ -276,10 +275,10 @@ def chunks(
         # If no valid boundaries, find any boundary that satisfies min_chunk_length
         if not valid_boundaries:
             valid_boundaries = short_boundaries  # should basically never happen though
-            print("WARNING: had to use short_boundaries!")
+            logger.warning("had to use short_boundaries!")
         if not valid_boundaries:
-            print(
-                "wtf, no valid boundaries or short boundaries, wtf? should only happen if someone gives us a string with no spaces. returning preferred chunk without regard to word cutting"
+            logger.warning(
+                "no valid boundaries or short boundaries - only happens with no spaces in text, cutting at preferred position"
             )
             result_chunks.append(
                 Chunk(
@@ -314,30 +313,31 @@ def chunks(
 
         start_pos = best_boundary.pos
 
-    # Handle undersized final chunk by merging with previous
-    if (
-        len(result_chunks) >= 2
-        and doc_tokens.char_span_to_tokens(
+    # Handle undersized final chunk by merging with previous (if merge wouldn't exceed max)
+    if len(result_chunks) >= 2:
+        final_tokens = doc_tokens.char_span_to_tokens(
             result_chunks[-1].start_pos,
             result_chunks[-1].start_pos + len(result_chunks[-1].value),
         )
-        < min_chunk_length
-    ):
-        result_chunks[-2:] = [
-            Chunk(
-                result_chunks[-2].start_pos,
-                doc[result_chunks[-2].start_pos :],
-                0,
-                doc_tokens.char_span_to_tokens(result_chunks[-2].start_pos, len(doc)),
-                BPat(
-                    "merge_last",
-                    [result_chunks[-2].pat, result_chunks[-1].pat],
-                    None,
-                    None,
-                ),
-            )
-        ]
-        boundary_stats["merged_last"] += 1
+        merged_tokens = doc_tokens.char_span_to_tokens(
+            result_chunks[-2].start_pos, len(doc)
+        )
+        if final_tokens < min_chunk_length and merged_tokens <= max_chunk_length:
+            result_chunks[-2:] = [
+                Chunk(
+                    result_chunks[-2].start_pos,
+                    doc[result_chunks[-2].start_pos :],
+                    0,
+                    merged_tokens,
+                    BPat(
+                        "merge_last",
+                        [result_chunks[-2].pat, result_chunks[-1].pat],
+                        None,
+                        None,
+                    ),
+                )
+            ]
+            boundary_stats["merged_last"] += 1
 
     return result_chunks, dict(boundary_stats)
 

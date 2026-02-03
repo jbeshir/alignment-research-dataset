@@ -131,7 +131,7 @@ database can be started in Docker by running
 For Pinecone updates to work, you'll need to configure the API key:
 
 1. Get an API key, as described [here](https://docs.pinecone.io/docs/quickstart#2-get-and-verify-your-pinecone-api-key)
-2. Create a Pinecone index named "stampy-chat-ard" (or whatever is set as `PINECONE_INDEX_NAME`) with the `dotproduct` metric and `1536` dimensions
+2. Create a Pinecone index named "stampy-chat-ard" (or whatever is set as `PINECONE_INDEX_NAME`) with the `dotproduct` metric and `1024` dimensions
 3. Set the `PINECONE_API_KEY` to the key from step 1
 4. Set the `PINECONE_ENVIRONMENT` to whatever is the environment of your index
 
@@ -173,7 +173,9 @@ The airtable we currently scrape is <https://airtable.com/appbiNKDcn1sGPGOG/shro
 
 ### VoyageAI
 
-Voyage AI is used for embeddings. For this to work, you'll need a voyageai [API key](https://dashboard.voyageai.com/organization/api-keys) which should added to `.env` as
+Voyage AI is used for embeddings. For this to work, you'll need a voyageai [API key](https://dashboard.voyageai.com/organization/api-keys) which should added to `.env` as `VOYAGEAI_API_KEY`.
+
+Current embedding model: `voyage-context-3` (1024 dimensions).
 
 ## Testing
 
@@ -299,7 +301,14 @@ There are Datasets defined for various types of data sources - first check if an
 
 ## Contributing
 
-The scraper code and dataset are maintained by [StampyAI](http://stampy.ai) / [AI Safety Info](http://aisafety.info). [Learn more](https://coda.io/d/AI-Safety-Info_dfau7sl2hmG/Get-involved_susRF#_lufSr) or join us on [Rob Miles AI Discord server](https://discord.gg/vjFSCDyMCy).
+The scraper code and dataset are maintained by [StampyAI](http://stampy.ai) / [AI Safety Info](http://aisafety.info). [Learn more](https://coda.io/d/AI-Safety-Info_dfau7sl2hmG/Get-involved_susRF#_lufSr) or join us on [Rob Miles AI Discord server](https://discord.gg/vjFSCDyMCy?channel=1125882422731472896). For dataset-specific questions, join the "Alignment Research Dataset dev" thread of the #💻-stampy-dev-forum channel.
+
+### Ways to contribute
+
+  - **Suggest content**: Use [this form](https://bit.ly/ard-suggestion) to suggest sources not already in the dataset
+  - **Add a new data source**: See [Adding New Datasets](#adding-new-datasets) above
+  - **Fix bugs or tackle open issues**: Check [open issues](https://github.com/StampyAI/alignment-research-dataset/issues) for bugs or enhancements or suggest your own
+  - **Join our meetings**: Check the Discord Events to find out the time of the next AISafety.info Team Meeting
 
 ## Citing the Dataset
 
