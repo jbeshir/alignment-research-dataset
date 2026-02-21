@@ -102,6 +102,11 @@ class Article(Base):
         LONGTEXT
     )  # Editor comments. Can be anything
 
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    key_points: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    implication: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    category: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
     pinecone_status: Mapped[PineconeStatus] = mapped_column(
         Enum(PineconeStatus), default=PineconeStatus.absent
     )

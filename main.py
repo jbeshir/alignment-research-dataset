@@ -8,6 +8,7 @@ import fire
 from align_data import ALL_DATASETS, get_dataset
 from align_data.analysis.count_tokens import count_token
 from align_data.embeddings.pinecone.update_pinecone import PineconeUpdater
+from align_data.llm.summarize import ArticleSummarizer
 from align_data.settings import (
     METADATA_OUTPUT_SPREADSHEET,
     METADATA_SOURCE_SHEET,
@@ -159,6 +160,33 @@ class AlignmentDataset:
         :param str hash_ids: space-separated list of article IDs.
         """
         PineconeUpdater().update_articles_by_ids(
+            hash_ids, force_update, self.log_progress
+        )
+
+    def summarize(self, *names, force_update=False) -> None:
+        """
+        Generate LLM summaries for articles from the given sources.
+
+        :param List[str] names: The name of the dataset to summarize, or 'all' for all of them
+        :param bool force_update: Re-summarize articles that already have summaries
+        """
+        if names == ("all",):
+            names = ALL_DATASETS
+        missing = {name for name in names if name not in ALL_DATASETS}
+        assert not missing, f"{missing} are not valid dataset names"
+
+        ArticleSummarizer().update(names, force_update, self.log_progress)
+
+    def summarize_individual_articles(
+        self, *hash_ids: str, force_update=False
+    ) -> None:
+        """
+        Generate LLM summaries for specific articles based on their IDs.
+
+        :param str hash_ids: space-separated list of article IDs.
+        :param bool force_update: Re-summarize articles that already have summaries
+        """
+        ArticleSummarizer().update_articles_by_ids(
             hash_ids, force_update, self.log_progress
         )
 
