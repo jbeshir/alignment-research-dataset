@@ -13,6 +13,8 @@ from align_data.llm.provider import LLMProvider, create_llm_provider
 logger = logging.getLogger(__name__)
 
 
+MIN_TEXT_LENGTH = 200
+
 class ArticleSummarizer:
     batch_size = 10
 
@@ -80,10 +82,17 @@ class ArticleSummarizer:
     def _process_batch(self, session: Session, batch: List[Article]):
         try:
             for article in batch:
+                text = article.text or ""
+                if len(text.strip()) < MIN_TEXT_LENGTH:
+                    logger.info(
+                        "Skipping article %s (%s): text too short (%d chars)",
+                        article.id, article.title, len(text.strip()),
+                    )
+                    continue
                 try:
                     analysis = self.provider.analyze_article(
                         title=article.title or "",
-                        text=article.text or "",
+                        text=text,
                         source=article.source or "",
                     )
                     article.summary = analysis.summary
