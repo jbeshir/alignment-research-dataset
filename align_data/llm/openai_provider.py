@@ -15,6 +15,7 @@ CATEGORIES = [
     "AI Ethics",
     "Capabilities",
     "Forecasting",
+    "Field Building",
     "Other",
 ]
 
