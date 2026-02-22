@@ -4,6 +4,7 @@ import traceback
 from itertools import islice
 from typing import Iterator, List
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from align_data.db.models import Article
@@ -95,11 +96,19 @@ class ArticleSummarizer:
                         text=text,
                         source=article.source or "",
                     )
-                    article.summary = analysis.summary
-                    article.key_points = json.dumps(analysis.key_points)
-                    article.implication = analysis.implication
-                    article.category = analysis.category
-                    session.add(article)
+                    # Use a targeted UPDATE to avoid flushing unrelated fields
+                    # (the JSON 'meta' column can cause serialization errors
+                    # with mysql-connector-python's C extension).
+                    session.execute(
+                        update(Article)
+                        .where(Article._id == article._id)
+                        .values(
+                            summary=analysis.summary,
+                            key_points=json.dumps(analysis.key_points),
+                            implication=analysis.implication,
+                            category=analysis.category,
+                        )
+                    )
                 except Exception as e:
                     logger.error(
                         "Error summarizing article %s: %s", article.id, e
