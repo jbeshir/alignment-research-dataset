@@ -58,11 +58,11 @@ ARTICLE_MAIN_KEYS = [
 
 ### EMBEDDINGS ###
 MAX_EMBEDDING_TOKENS = 120000
-# voyage-context-3 recommends smaller chunks with NO overlap
-# (context is handled internally by the model)
-MIN_CHUNK_LENGTH = 70      # ~50 words
-MAX_CHUNK_LENGTH = 200     # ~150 words
-PREFERRED_CHUNK_LENGTH = 100  # ~75 words
+# voyage-context-3 is robust across chunk sizes (2.06% variance) and handles
+# context internally, so larger chunks are safe and reduce vector count.
+MIN_CHUNK_LENGTH = 140     # ~100 words
+MAX_CHUNK_LENGTH = 400     # ~300 words
+PREFERRED_CHUNK_LENGTH = 200  # ~150 words
 CHUNK_MAX_OVERLAP = 0      # voyage-context-3 handles context internally
 
 VOYAGEAI_API_KEY = os.environ.get("VOYAGEAI_API_KEY")
