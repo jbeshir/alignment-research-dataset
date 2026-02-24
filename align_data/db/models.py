@@ -31,7 +31,6 @@ from sqlalchemy.orm.attributes import get_history
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.ext.hybrid import hybrid_property
 
-from align_data.embeddings.pinecone.pinecone_models import PineconeMetadata
 
 logger = logging.getLogger(__name__)
 OK_STATUS = None
@@ -235,12 +234,8 @@ class Article(Base):
     def check_for_changes(cls, mapper, connection, target):
         if not target.is_valid:
             return
-        monitored_attributes = list(PineconeMetadata.__annotations__.keys())
-        monitored_attributes.remove("hash_id")
-
-        if any(
-            get_history(target, attr).has_changes() for attr in monitored_attributes
-        ):
+        # Re-embed when article text changes (the content that gets chunked and vectorized)
+        if get_history(target, "text").has_changes():
             target.pinecone_status = PineconeStatus.pending_addition
 
     def to_dict(self) -> Dict[str, Any]:

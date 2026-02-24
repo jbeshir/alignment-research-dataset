@@ -202,20 +202,7 @@ class PineconeAdder(PineconeAction):
         try:
             return PineconeEntry(
                 hash_id=article.id,
-                source=article.source,
-                title=article.title,
-                url=article.url,
-                date_published=article.date_published.timestamp() if article.date_published else None,
-                authors=[
-                    author.strip()
-                    for author in article.authors.split(",")
-                    if author.strip()
-                ],
                 embeddings=embeddings,
-                confidence=article.confidence,
-                miri_confidence=article.miri_confidence,
-                miri_distance=article.miri_distance or "general",
-                needs_tech=article.needs_tech,
             )
         except ValidationError as e:
             logger.warning(e)
