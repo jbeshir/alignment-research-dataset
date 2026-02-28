@@ -189,8 +189,7 @@ class PineconeAdder(PineconeAction):
             if not vectors:
                 results.append((article, None))
                 continue
-            chunks = chunks_by_article[article]
-            assert len(vectors) == len(chunks), f"Embedding count mismatch: {len(vectors)} vs {len(chunks)}"
+            chunks = chunks_by_article[article][:len(vectors)]
             embeddings = [Embedding(vector=v, text=t) for v, t in zip(vectors, chunks)]
             results.append((article, self._make_pinecone_entry_from_embeddings(article, embeddings)))
         return results

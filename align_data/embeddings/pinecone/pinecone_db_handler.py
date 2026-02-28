@@ -222,7 +222,11 @@ class PineconeDB:
     @with_retry()
     def _find_item(self, id_):
         """Find all vector IDs with the given prefix."""
-        return list(self.index.list(prefix=id_, namespace=PINECONE_NAMESPACE))
+        return [
+            id
+            for page in self.index.list(prefix=id_, namespace=PINECONE_NAMESPACE)
+            for id in page
+        ]
 
     @with_retry()
     def _del_items(self, ids):

@@ -268,6 +268,32 @@ def embed_documents_contextualized(
     if not cleaned_docs:
         return [[] for _ in documents]
 
+    # Truncate documents exceeding voyage-context-3's 32K per-document context window.
+    # Drop trailing chunks to fit, using conservative ~3 chars/token estimate.
+    max_doc_tokens = 32000
+    safe_doc_chars = int(max_doc_tokens * 3 * 0.9)  # 90% safety margin
+    for i, doc in enumerate(cleaned_docs):
+        total_chars = sum(len(chunk) for chunk in doc)
+        if total_chars > safe_doc_chars:
+            truncated = []
+            chars_so_far = 0
+            for chunk in doc:
+                if chars_so_far + len(chunk) > safe_doc_chars:
+                    break
+                truncated.append(chunk)
+                chars_so_far += len(chunk)
+            if truncated:
+                logger.warning(
+                    "Document %d too long (%d chars, ~%d tokens), truncated from %d to %d chunks",
+                    doc_indices[i], total_chars, total_chars // 3, len(doc), len(truncated),
+                )
+                cleaned_docs[i] = truncated
+            else:
+                logger.warning(
+                    "Document %d first chunk alone exceeds limit (%d chars), keeping it anyway",
+                    doc_indices[i], len(doc[0]),
+                )
+
     # Batch by voyage-context-3 limits
     # Use cleaned_docs for embedding, then restore alignment
     cleaned_results = []
