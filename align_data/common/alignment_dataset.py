@@ -143,7 +143,7 @@ class AlignmentDataset:
                 # an exception, try to commit them one by one
                 if not commit(allow_duplicates=True):
                     for entry in batch:
-                        session.add(entry)
+                        session.merge(entry)
                         commit(allow_duplicates=True, entry=entry)
                 logger.info(f"Committed batch of {len(batch)} entries to {self.name}")
 
