@@ -22,6 +22,7 @@ from tenacity import (
 )
 import voyageai
 
+from align_data.embeddings.text_splitter import TOKENIZER
 from align_data.settings import (
     OPENAI_API_KEY,
     OPENAI_ORGANIZATION,
@@ -269,29 +270,30 @@ def embed_documents_contextualized(
         return [[] for _ in documents]
 
     # Truncate documents exceeding voyage-context-3's 32K per-document context window.
-    # Drop trailing chunks to fit, using conservative ~3 chars/token estimate.
-    max_doc_tokens = 32000
-    safe_doc_chars = int(max_doc_tokens * 3 * 0.9)  # 90% safety margin
+    # Use actual token counts via tiktoken — char-based estimates are unreliable
+    # for technical content (code, math, LaTeX) where chars/token ≈ 1-2, not 3-4.
+    max_doc_tokens = 30000  # 32K limit with safety margin
     for i, doc in enumerate(cleaned_docs):
-        total_chars = sum(len(chunk) for chunk in doc)
-        if total_chars > safe_doc_chars:
+        chunk_tokens = [len(TOKENIZER.encode(chunk)) for chunk in doc]
+        total_tokens = sum(chunk_tokens)
+        if total_tokens > max_doc_tokens:
             truncated = []
-            chars_so_far = 0
-            for chunk in doc:
-                if chars_so_far + len(chunk) > safe_doc_chars:
+            tokens_so_far = 0
+            for chunk, n_tokens in zip(doc, chunk_tokens):
+                if tokens_so_far + n_tokens > max_doc_tokens:
                     break
                 truncated.append(chunk)
-                chars_so_far += len(chunk)
+                tokens_so_far += n_tokens
             if truncated:
                 logger.warning(
-                    "Document %d too long (%d chars, ~%d tokens), truncated from %d to %d chunks",
-                    doc_indices[i], total_chars, total_chars // 3, len(doc), len(truncated),
+                    "Document %d too long (%d tokens), truncated from %d to %d chunks",
+                    doc_indices[i], total_tokens, len(doc), len(truncated),
                 )
                 cleaned_docs[i] = truncated
             else:
                 logger.warning(
-                    "Document %d first chunk alone exceeds limit (%d chars), keeping it anyway",
-                    doc_indices[i], len(doc[0]),
+                    "Document %d first chunk alone exceeds limit (%d tokens), keeping it anyway",
+                    doc_indices[i], chunk_tokens[0],
                 )
 
     # Batch by voyage-context-3 limits
@@ -301,13 +303,10 @@ def embed_documents_contextualized(
     batch_tokens = 0
     batch_chunks = 0
 
-    # Be conservative: ~3 chars/token to avoid underestimating technical content
-    # Also use 80% of MAX_EMBEDDING_TOKENS as safety margin (120k -> 96k)
-    safe_token_limit = int(MAX_EMBEDDING_TOKENS * 0.8)
+    safe_token_limit = int(MAX_EMBEDDING_TOKENS * 0.9)
 
     for doc in cleaned_docs:
-        # Conservative token estimate: ~3 chars/token for technical content
-        doc_tokens = sum(len(chunk) for chunk in doc) // 3 + len(doc)
+        doc_tokens = sum(len(TOKENIZER.encode(chunk)) for chunk in doc)
         doc_chunks = len(doc)
 
         # If adding this doc would exceed limits, process current batch first
