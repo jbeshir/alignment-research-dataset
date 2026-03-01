@@ -28,6 +28,7 @@ from align_data.settings import (
     OPENAI_ORGANIZATION,
     VOYAGEAI_API_KEY,
     VOYAGEAI_EMBEDDINGS_MODEL,
+    EMBEDDINGS_DIMS,
     USE_MODERATION,
     MAX_EMBEDDING_TOKENS,
 )
@@ -160,7 +161,7 @@ def embed_texts(texts: list[str]) -> list[Embedding]:
             results = _contextualized_embed_batch([[t] for t in batch], model, "document")
             return [doc[0] for doc in results]
         else:
-            return voyageai_client.embed(batch, model=model).embeddings
+            return voyageai_client.embed(batch, model=model, output_dimension=EMBEDDINGS_DIMS).embeddings
 
     vectors = [
         vector
@@ -360,6 +361,7 @@ def _contextualized_embed_batch(
             inputs=documents,
             model=model,
             input_type=input_type,
+            output_dimension=EMBEDDINGS_DIMS,
         )
         # result.results is a list of objects, each with .embeddings
         return [doc_result.embeddings for doc_result in result.results]

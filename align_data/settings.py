@@ -69,7 +69,7 @@ VOYAGEAI_API_KEY = os.environ.get("VOYAGEAI_API_KEY")
 VOYAGEAI_EMBEDDINGS_MODEL = os.environ.get(
     "VOYAGEAI_EMBEDDINGS_MODEL", "voyage-context-3"
 )
-EMBEDDINGS_DIMS = 1024
+EMBEDDINGS_DIMS = 512
 USE_MODERATION = os.environ.get("USE_MODERATION", "true").lower() == "true"
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
