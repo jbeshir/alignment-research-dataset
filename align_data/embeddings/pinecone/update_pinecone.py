@@ -13,8 +13,10 @@ from align_data.embeddings.embedding_utils import (
 from align_data.db.models import Article, PineconeStatus
 from align_data.db.session import (
     make_session,
+    get_pinecone_articles,
     get_pinecone_articles_by_sources,
     get_pinecone_articles_by_ids,
+    get_pinecone_articles_to_remove,
     get_pinecone_to_delete_by_sources,
     get_pinecone_to_delete_by_ids,
 )
@@ -38,7 +40,7 @@ class PineconeAction:
         self.pinecone_db = pinecone or PineconeDB()
 
     def _articles_by_source(
-        self, session: Session, sources: List[str], force_update: bool
+        self, session: Session, sources: List[str] | None, force_update: bool
     ) -> Iterable[Article]:
         raise NotImplementedError
 
@@ -79,14 +81,14 @@ class PineconeAction:
 
     def update(
         self,
-        custom_sources: List[str],
+        custom_sources: List[str] | None,
         force_update: bool = False,
         log_progress: bool = True,
     ):
         """
-        Update the given sources. If no sources are provided, updates all sources.
+        Update the given sources, or all articles if sources is None.
 
-        :param custom_sources: List of sources to update.
+        :param custom_sources: List of sources to update, or None for all articles.
         :param log_progress: Whether to log progress updates.
         """
         with make_session() as session:
@@ -133,7 +135,9 @@ class PineconeAdder(PineconeAction):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def _articles_by_source(self, session, sources: List[str], force_update: bool):
+    def _articles_by_source(self, session, sources: List[str] | None, force_update: bool):
+        if sources is None:
+            return get_pinecone_articles(session, force_update)
         return get_pinecone_articles_by_sources(session, sources, force_update)
 
     def _articles_by_id(self, session, ids: List[str], force_update: bool):
@@ -212,7 +216,9 @@ class PineconeAdder(PineconeAction):
 class PineconeDeleter(PineconeAction):
     pinecone_statuses = [PineconeStatus.pending_removal]
 
-    def _articles_by_source(self, session, sources: List[str], _force_update: bool):
+    def _articles_by_source(self, session, sources: List[str] | None, _force_update: bool):
+        if sources is None:
+            return get_pinecone_articles_to_remove(session)
         return get_pinecone_to_delete_by_sources(session, sources)
 
     def _articles_by_id(self, session, ids: List[str], _force_update: bool):
@@ -234,23 +240,24 @@ class PineconeUpdater(PineconeAction):
 
     def update(
         self,
-        custom_sources: List[str],
+        custom_sources: List[str] | None,
         force_update: bool = False,
         log_progress: bool = True,
     ):
         """
-        Update the given sources. If no sources are provided, updates all sources.
+        Update the given sources, or all articles if sources is None.
 
-        :param custom_sources: List of sources to update.
+        :param custom_sources: List of sources to update, or None for all articles.
         :param log_progress: Whether to log progress updates.
         """
+        label = custom_sources or "all articles"
 
         if log_progress:
-            logger.info("Adding pinecone entries for %s", custom_sources)
+            logger.info("Adding pinecone entries for %s", label)
         self.adder.update(custom_sources, force_update, log_progress)
 
         if log_progress:
-            logger.info("Removing outdated pinecone entries for %s", custom_sources)
+            logger.info("Removing outdated pinecone entries for %s", label)
         self.remover.update(custom_sources, force_update, log_progress)
 
         if log_progress:

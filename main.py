@@ -145,11 +145,13 @@ class AlignmentDataset:
         :param List[str] names: The name of the dataset to update, or 'all' for all of them
         """
         if names == ("all",):
-            names = ALL_DATASETS
+            PineconeUpdater().update(None, force_update, self.log_progress)
+            return
+
         missing = {name for name in names if name not in ALL_DATASETS}
         assert not missing, f"{missing} are not valid dataset names"
 
-        PineconeUpdater().update(names, force_update, self.log_progress)
+        PineconeUpdater().update(list(names), force_update, self.log_progress)
 
     def pinecone_update_individual_articles(
         self, *hash_ids: str, force_update=False
