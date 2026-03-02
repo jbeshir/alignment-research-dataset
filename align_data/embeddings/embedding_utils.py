@@ -22,7 +22,6 @@ from tenacity import (
 )
 import voyageai
 
-from align_data.embeddings.text_splitter import TOKENIZER
 from align_data.settings import (
     OPENAI_API_KEY,
     OPENAI_ORGANIZATION,
@@ -271,11 +270,11 @@ def embed_documents_contextualized(
         return [[] for _ in documents]
 
     # Truncate documents exceeding voyage-context-3's 32K per-document context window.
-    # Use actual token counts via tiktoken — char-based estimates are unreliable
-    # for technical content (code, math, LaTeX) where chars/token ≈ 1-2, not 3-4.
-    max_doc_tokens = 30000  # 32K limit with safety margin
+    # Use VoyageAI's own tokenizer — tiktoken (cl100k_base) undercounts for Voyage models,
+    # causing 32K limit errors despite our safety margin.
+    max_doc_tokens = 31000  # 32K limit with small safety margin (accurate tokenizer)
     for i, doc in enumerate(cleaned_docs):
-        chunk_tokens = [len(TOKENIZER.encode(chunk)) for chunk in doc]
+        chunk_tokens = [len(enc.tokens) for enc in voyageai_client.tokenize(doc, model=model)]
         total_tokens = sum(chunk_tokens)
         if total_tokens > max_doc_tokens:
             truncated = []
@@ -307,7 +306,7 @@ def embed_documents_contextualized(
     safe_token_limit = int(MAX_EMBEDDING_TOKENS * 0.9)
 
     for doc in cleaned_docs:
-        doc_tokens = sum(len(TOKENIZER.encode(chunk)) for chunk in doc)
+        doc_tokens = voyageai_client.count_tokens(doc, model=model)
         doc_chunks = len(doc)
 
         # If adding this doc would exceed limits, process current batch first
