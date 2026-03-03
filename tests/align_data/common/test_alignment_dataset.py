@@ -85,7 +85,7 @@ def test_data_entry_id_from_urls_and_title():
                 "title": "wikipedia goes to war on porcupines",
                 "url": "asd",
             },
-            "missing fields: date_published, source, text",
+            "missing fields: source, text",
         ),
         (
             {
@@ -95,7 +95,7 @@ def test_data_entry_id_from_urls_and_title():
                 "text": "asdasd",
                 "title": "asdasd",
             },
-            "missing fields: date_published, source",
+            "missing fields: source",
         ),
         (
             {
@@ -119,17 +119,6 @@ def test_data_entry_id_from_urls_and_title():
             },
             "missing fields: source",
         ),
-        (
-            {
-                "key1": 12,
-                "key2": 312,
-                "url": "www.wikipedia.org",
-                "title": "bla",
-                "text": "asdasd",
-                "source": "dwe",
-            },
-            "missing fields: date_published",
-        ),
     ),
 )
 def test_data_entry_missing(item, error):
@@ -138,6 +127,20 @@ def test_data_entry_missing(item, error):
     Article.before_write(None, None, entry)
     assert entry.status == "Missing fields"
     assert entry.comments == error
+
+
+def test_data_entry_missing_date_published_not_blocking():
+    dataset = AlignmentDataset(name="blaa")
+    entry = dataset.make_data_entry(
+        {
+            "url": "www.wikipedia.org",
+            "title": "bla",
+            "text": "asdasd",
+            "source": "dwe",
+        }
+    )
+    Article.before_write(None, None, entry)
+    assert entry.status is None
 
 
 def test_data_entry_verify_id_passes():

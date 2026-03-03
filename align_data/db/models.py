@@ -135,7 +135,6 @@ class Article(Base):
             "title",
             "url",
             "source",
-            "date_published",
         }
         return sorted([field for field in fields if not getattr(self, field, None)])
 
