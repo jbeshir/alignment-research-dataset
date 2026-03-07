@@ -145,6 +145,8 @@ class GreaterWrong(AlignmentDataset):
                         displayName
                     }}
                     af
+                    socialPreviewImageUrl
+                    socialPreviewImageAutoUrl
                     contents {{
                         markdown
                     }}
@@ -273,20 +275,24 @@ class GreaterWrong(AlignmentDataset):
         else:
             raise ValueError(f"missing both htmlBody and contents.markdown on {item.get('title')!r} from {item.get('url')!r}")
 
-        return self.make_data_entry(
-            {
-                "title": item["title"],
-                "text": text,
-                "url": item["pageUrl"],
-                "date_published": self._get_published_date(item),
-                "modified_at": item["modifiedAt"],
-                "source": self.name,
-                "source_type": self.source_type,
-                "votes": item["voteCount"],
-                "karma": item["baseScore"],
-                "tags": [t["name"] for t in item["tags"]],
-                "words": item["wordCount"],
-                "comment_count": item["commentCount"],
-                "authors": self.extract_authors(item),
-            }
-        )
+        data = {
+            "title": item["title"],
+            "text": text,
+            "url": item["pageUrl"],
+            "date_published": self._get_published_date(item),
+            "modified_at": item["modifiedAt"],
+            "source": self.name,
+            "source_type": self.source_type,
+            "votes": item["voteCount"],
+            "karma": item["baseScore"],
+            "tags": [t["name"] for t in item["tags"]],
+            "words": item["wordCount"],
+            "comment_count": item["commentCount"],
+            "authors": self.extract_authors(item),
+        }
+
+        thumbnail = item.get("socialPreviewImageUrl") or item.get("socialPreviewImageAutoUrl")
+        if thumbnail:
+            data["thumbnail_url"] = thumbnail
+
+        return self.make_data_entry(data)
