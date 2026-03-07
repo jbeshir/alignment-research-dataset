@@ -14,6 +14,7 @@ from markdownify import markdownify
 
 from align_data.db.models import Article
 from align_data.common.alignment_dataset import AlignmentDataset
+from align_data.common.thumbnails import extract_thumbnail_url
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class HTMLDataset(AlignmentDataset):
         title = self._get_title(contents)
         date_published = self._get_published_date(contents)
 
-        return {
+        result = {
             "text": self._get_text(contents),
             "url": article_url,
             "title": title,
@@ -71,6 +72,13 @@ class HTMLDataset(AlignmentDataset):
             "authors": self.extract_authors(contents),
             **self._extra_values(contents),
         }
+
+        soup = contents if isinstance(contents, BeautifulSoup) else contents.get("soup") if isinstance(contents, dict) else None
+        thumbnail = extract_thumbnail_url(article_url, soup)
+        if thumbnail:
+            result["thumbnail_url"] = thumbnail
+
+        return result
 
     def process_entry(self, article: Tag) -> Article:
         article_url = self.get_item_key(article)

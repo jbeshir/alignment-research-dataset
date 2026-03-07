@@ -54,6 +54,7 @@ ARTICLE_MAIN_KEYS = [
     "date_published",
     "status",
     "comments",
+    "thumbnail_url",
 ]
 
 ### EMBEDDINGS ###

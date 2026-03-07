@@ -4,7 +4,8 @@ from typing import Dict, Optional, Callable, Any
 
 from requests.exceptions import ConnectionError, InvalidSchema, MissingSchema
 
-from align_data.sources.articles.html import element_extractor, fetch, fetch_element
+from align_data.common.http import fetch
+from align_data.sources.articles.html import element_extractor, fetch_element
 from align_data.sources.articles.pdf import doi_getter, fetch_pdf, parse_vanity
 from align_data.sources.articles.google_cloud import google_doc, extract_gdrive_contents
 from align_data.sources.arxiv_papers import fetch_arxiv

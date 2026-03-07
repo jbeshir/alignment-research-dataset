@@ -18,7 +18,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from markdownify import MarkdownConverter
 
-from align_data.sources.articles.html import fetch, fetch_element
+from align_data.common.http import fetch
+from align_data.sources.articles.html import fetch_element
 from align_data.sources.articles.pdf import fetch_pdf
 
 logger = logging.getLogger(__name__)

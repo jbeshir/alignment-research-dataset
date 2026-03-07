@@ -1,50 +1,14 @@
-import time
 import logging
-from typing import Optional, Dict, Literal, Optional, Any, List
+from typing import Optional, Dict, Any, List
 
 import requests
 from bs4 import BeautifulSoup, Tag
 from markdownify import MarkdownConverter
 
+from align_data.common.http import fetch, DEFAULT_HEADERS
+from align_data.common.thumbnails import extract_thumbnail_url
+
 logger = logging.getLogger(__name__)
-
-DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/113.0",
-}
-
-
-def with_retry(times=3, exceptions=requests.exceptions.RequestException):
-    """A decorator that will retry the wrapped function up to `times` times in case of google sheets errors."""
-
-    def wrapper(f):
-        def retrier(*args, **kwargs):
-            for i in range(times):
-                try:
-                    return f(*args, **kwargs)
-                except exceptions as e:
-                    logger.error(f"{e} - retrying up to {times - i} times")
-                    # Do a logarithmic backoff
-                    time.sleep((i + 1) ** 2)
-            raise ValueError(f"Gave up after {times} tries")
-
-        return retrier
-
-    return wrapper
-
-
-def fetch(
-    url: str, 
-    method: Literal["get", "post", "put", "delete", "patch", "options", "head"] = "get", 
-    headers: Dict[str, str] = DEFAULT_HEADERS
-) -> requests.Response:
-    """Fetch the given `url`.
-
-    This function is to have a single place to manage headers etc.
-    """
-    try:
-        return getattr(requests, method)(url, allow_redirects=True, headers=headers)
-    except requests.exceptions.TooManyRedirects as e:
-        return e.response
 
 
 def fetch_element(url: str, selector: str, headers: Dict[str, str] = DEFAULT_HEADERS) -> Tag | None:
@@ -69,17 +33,31 @@ def element_extractor(selector: str, remove: Optional[List[str]] = None):
     remove = remove or []
 
     def getter(url: str) -> Dict[str, Any]:
-        elem = fetch_element(url, selector)
+        try:
+            resp = fetch(url)
+        except requests.exceptions.ConnectionError:
+            logger.error("Could not connect to %s", url)
+            return {}
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+        elem = soup.select_one(selector)
         if not elem:
             return {}
 
         for sel in remove:
             for e in elem.select(sel):
                 e.extract()
-        return {
+
+        result: Dict[str, Any] = {
             "text": MarkdownConverter().convert_soup(elem).strip(),
             "source_url": url,
             "source_type": "html",
         }
+
+        thumbnail = extract_thumbnail_url(url, soup)
+        if thumbnail:
+            result["thumbnail_url"] = thumbnail
+
+        return result
 
     return getter

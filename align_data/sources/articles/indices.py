@@ -7,7 +7,8 @@ from dateutil.parser import ParserError, parse
 from markdownify import MarkdownConverter
 from tqdm import tqdm
 
-from align_data.sources.articles.html import fetch, fetch_element
+from align_data.common.http import fetch
+from align_data.sources.articles.html import fetch_element
 from align_data.sources.articles.parsers import item_metadata, parse_domain
 from align_data.common.alignment_dataset import AlignmentDataset
 

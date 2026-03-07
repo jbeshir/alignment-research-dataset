@@ -12,7 +12,8 @@ from pypdf.errors import PdfReadError
 from markdownify import MarkdownConverter
 from bs4.element import Tag
 
-from align_data.sources.articles.html import fetch, fetch_element, with_retry
+from align_data.common.http import fetch, with_retry
+from align_data.sources.articles.html import fetch_element
 
 logger = logging.getLogger(__name__)
 

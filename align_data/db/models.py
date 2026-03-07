@@ -104,6 +104,7 @@ class Article(Base):
     key_points: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     implication: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     category: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
 
     pinecone_status: Mapped[PineconeStatus] = mapped_column(
         Enum(PineconeStatus), default=PineconeStatus.absent

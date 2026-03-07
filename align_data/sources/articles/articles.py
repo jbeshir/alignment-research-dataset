@@ -17,7 +17,7 @@ from align_data.sources.articles.google_cloud import (
 )
 from align_data.sources.articles.parsers import item_metadata, fetch
 from align_data.sources.articles.indices import fetch_all
-from align_data.sources.articles.html import with_retry
+from align_data.common.http import with_retry
 from align_data.sources.articles.updater import ReplacerDataset
 from align_data.settings import PDFS_FOLDER_ID
 

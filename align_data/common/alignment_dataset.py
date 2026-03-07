@@ -20,6 +20,7 @@ from tqdm import tqdm
 from align_data.db.models import Article, Summary
 from align_data.db.session import make_session
 from align_data.common.formatters import normalize_url, article_dict
+from align_data.common.thumbnails import fetch_thumbnail_url
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,12 @@ class AlignmentDataset:
 
     def make_data_entry(self, data, **kwargs) -> Article:
         data = article_dict(data, **kwargs)
+
+        if not data.get("thumbnail_url") and data.get("url"):
+            thumbnail = fetch_thumbnail_url(data["url"])
+            if thumbnail:
+                data["thumbnail_url"] = thumbnail
+
         summaries = data.pop("summaries", [])
         # If summaries ended up inside meta (article_dict buckets non-main fields)
         # pull them out so they become Summary rows rather than meta baggage.

@@ -141,19 +141,19 @@ class YouTubeDataset(AlignmentDataset):
         if not contents:
             return None
 
-        return self.make_data_entry(
-            {
-                "text": contents,
-                "url": video_url,
-                "title": video["snippet"]["title"],
-                "source": self.name,
-                "source_type": "youtube",
-                "date_published": self._get_published_date(
-                    self._extract_published_date(video)
-                ),
-                "authors": self.extract_authors(video),
-            }
-        )
+        data = {
+            "text": contents,
+            "url": video_url,
+            "title": video["snippet"]["title"],
+            "source": self.name,
+            "source_type": "youtube",
+            "date_published": self._get_published_date(
+                self._extract_published_date(video)
+            ),
+            "authors": self.extract_authors(video),
+        }
+
+        return self.make_data_entry(data)
 
 
 @dataclass

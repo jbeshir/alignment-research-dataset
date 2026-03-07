@@ -9,6 +9,7 @@ from align_data import ALL_DATASETS, get_dataset
 from align_data.analysis.count_tokens import count_token
 from align_data.embeddings.pinecone.update_pinecone import PineconeUpdater
 from align_data.llm.summarize import ArticleSummarizer
+from align_data.sources.articles.backfill_thumbnails import ThumbnailBackfiller
 from align_data.settings import (
     METADATA_OUTPUT_SPREADSHEET,
     METADATA_SOURCE_SHEET,
@@ -189,6 +190,31 @@ class AlignmentDataset:
         :param bool force_update: Re-summarize articles that already have summaries
         """
         ArticleSummarizer().update_articles_by_ids(
+            hash_ids, force_update, self.log_progress
+        )
+
+    def backfill_thumbnails(self, *names, force_update=False) -> None:
+        """Backfill thumbnail URLs for articles from the given sources.
+
+        :param List[str] names: The name of the dataset to backfill, or 'all' for all of them
+        :param bool force_update: Re-extract thumbnails for articles that already have them
+        """
+        if names == ("all",):
+            names = ALL_DATASETS
+        missing = {name for name in names if name not in ALL_DATASETS}
+        assert not missing, f"{missing} are not valid dataset names"
+
+        ThumbnailBackfiller().update(list(names), force_update, self.log_progress)
+
+    def backfill_thumbnails_individual_articles(
+        self, *hash_ids: str, force_update=False
+    ) -> None:
+        """Backfill thumbnail URLs for specific articles based on their IDs.
+
+        :param str hash_ids: space-separated list of article IDs.
+        :param bool force_update: Re-extract thumbnails that already exist
+        """
+        ThumbnailBackfiller().update_articles_by_ids(
             hash_ids, force_update, self.log_progress
         )
 

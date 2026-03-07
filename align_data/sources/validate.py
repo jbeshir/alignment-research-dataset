@@ -8,7 +8,7 @@ from align_data.common.formatters import normalize_url, normalize_text, article_
 from align_data.db.session import make_session
 from align_data.db.models import Article
 from align_data.sources.articles.parsers import item_metadata
-from align_data.sources.articles.html import fetch
+from align_data.common.http import fetch
 
 
 logger = logging.getLogger(__name__)
