@@ -170,6 +170,22 @@ def test_process_batch_accumulates_usage(summarizer):
     assert usage.model == "gpt-5-nano"
 
 
+def test_process_batch_uses_thread_pool(summarizer):
+    from concurrent.futures import ThreadPoolExecutor
+
+    articles = [_make_article(_id=i, hash_id=f"a{i}") for i in range(3)]
+    summarizer.provider.analyze_article.return_value = _make_result()
+
+    session = MagicMock()
+    usage = TokenUsage()
+    with patch("align_data.llm.summarize.LLM_CONCURRENCY", 4), \
+         patch("align_data.llm.summarize.ThreadPoolExecutor", wraps=ThreadPoolExecutor) as mock_pool:
+        summarizer._process_batch(session, articles, usage)
+
+    mock_pool.assert_called_once_with(max_workers=4)
+    assert summarizer.provider.analyze_article.call_count == 3
+
+
 def test_process_articles_logs_total_usage(summarizer, caplog):
     import logging
 

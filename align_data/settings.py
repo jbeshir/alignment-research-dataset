@@ -92,6 +92,7 @@ LW_GRAPHQL_ACCESS = os.environ.get("LW_GRAPHQL_ACCESS")
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "openai")
 LLM_MODEL = os.environ.get("LLM_MODEL", "gpt-5-nano")
 LLM_REASONING_EFFORT = os.environ.get("LLM_REASONING_EFFORT", "low")
+LLM_CONCURRENCY = int(os.environ.get("LLM_CONCURRENCY", "4"))
 
 ### MISCELLANEOUS ###
 MIN_CONFIDENCE = float(os.environ.get("MIN_CONFIDENCE") or "0.5")

@@ -1,6 +1,7 @@
 import json
 import logging
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import islice
 from typing import Iterator, List
 
@@ -9,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from align_data.db.models import Article
 from align_data.db.session import make_session
-from align_data.llm.provider import LLMProvider, TokenUsage, create_llm_provider
+from align_data.llm.provider import AnalysisResult, LLMProvider, TokenUsage, create_llm_provider
+from align_data.settings import LLM_CONCURRENCY
 
 logger = logging.getLogger(__name__)
 
@@ -88,43 +90,68 @@ class ArticleSummarizer:
             yield batch
 
     def _process_batch(self, session: Session, batch: List[Article], usage: TokenUsage):
-        try:
-            for article in batch:
-                text = article.text or ""
-                if len(text.strip()) < MIN_TEXT_LENGTH:
-                    logger.info(
-                        "Skipping article %s (%s): text too short (%d chars)",
-                        article.id, article.title, len(text.strip()),
-                    )
-                    continue
+        eligible = []
+        for article in batch:
+            text = article.text or ""
+            if len(text.strip()) < MIN_TEXT_LENGTH:
+                logger.info(
+                    "Skipping article %s (%s): text too short (%d chars)",
+                    article.id, article.title, len(text.strip()),
+                )
+                continue
+            eligible.append(article)
+
+        if not eligible:
+            try:
+                session.commit()
+            except Exception as e:
+                logger.error("Error committing batch: %s", e)
+                traceback.print_exc()
+                session.rollback()
+            return
+
+        # Run LLM calls concurrently; collect results for sequential DB writes.
+        results: list[tuple[Article, AnalysisResult]] = []
+        with ThreadPoolExecutor(max_workers=LLM_CONCURRENCY) as executor:
+            future_to_article = {
+                executor.submit(
+                    self.provider.analyze_article,
+                    title=article.title or "",
+                    text=article.text or "",
+                    source=article.source or "",
+                ): article
+                for article in eligible
+            }
+            for future in as_completed(future_to_article):
+                article = future_to_article[future]
                 try:
-                    result = self.provider.analyze_article(
-                        title=article.title or "",
-                        text=text,
-                        source=article.source or "",
-                    )
-                    usage.prompt_tokens += result.usage.prompt_tokens
-                    usage.completion_tokens += result.usage.completion_tokens
-                    usage.total_tokens += result.usage.total_tokens
-                    usage.model = result.usage.model
-                    # Use a targeted UPDATE to avoid flushing unrelated fields
-                    # (the JSON 'meta' column can cause serialization errors
-                    # with mysql-connector-python's C extension).
-                    session.execute(
-                        update(Article)
-                        .where(Article._id == article._id)
-                        .values(
-                            summary=result.analysis.summary,
-                            key_points=json.dumps(result.analysis.key_points),
-                            implication=result.analysis.implication,
-                            category=result.analysis.category,
-                        )
-                    )
+                    result = future.result()
+                    results.append((article, result))
                 except Exception as e:
                     logger.error(
                         "Error summarizing article %s: %s", article.id, e
                     )
                     traceback.print_exc()
+
+        try:
+            for article, result in results:
+                usage.prompt_tokens += result.usage.prompt_tokens
+                usage.completion_tokens += result.usage.completion_tokens
+                usage.total_tokens += result.usage.total_tokens
+                usage.model = result.usage.model
+                # Use a targeted UPDATE to avoid flushing unrelated fields
+                # (the JSON 'meta' column can cause serialization errors
+                # with mysql-connector-python's C extension).
+                session.execute(
+                    update(Article)
+                    .where(Article._id == article._id)
+                    .values(
+                        summary=result.analysis.summary,
+                        key_points=json.dumps(result.analysis.key_points),
+                        implication=result.analysis.implication,
+                        category=result.analysis.category,
+                    )
+                )
             session.commit()
         except Exception as e:
             logger.error("Error committing batch: %s", e)
