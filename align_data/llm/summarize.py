@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from align_data.db.models import Article
 from align_data.db.session import make_session
-from align_data.llm.provider import LLMProvider, create_llm_provider
+from align_data.llm.provider import LLMProvider, TokenUsage, create_llm_provider
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +62,10 @@ class ArticleSummarizer:
         if log_progress:
             logger.info("Processing %s articles for summarization", total)
 
+        usage = TokenUsage()
         processed = 0
         for batch in self._batch_entries(query):
-            self._process_batch(session, batch)
+            self._process_batch(session, batch, usage)
             processed += len(batch)
             if log_progress:
                 pct = (processed / total * 100) if total > 0 else 0
@@ -75,12 +76,18 @@ class ArticleSummarizer:
         if log_progress:
             logger.info("Completed summarization of %s articles", processed)
 
+        if usage.total_tokens > 0:
+            logger.info(
+                "Total token usage for %s: %d prompt, %d completion, %d total",
+                usage.model, usage.prompt_tokens, usage.completion_tokens, usage.total_tokens,
+            )
+
     def _batch_entries(self, query) -> Iterator[List[Article]]:
         items = iter(query)
         while batch := list(islice(items, self.batch_size)):
             yield batch
 
-    def _process_batch(self, session: Session, batch: List[Article]):
+    def _process_batch(self, session: Session, batch: List[Article], usage: TokenUsage):
         try:
             for article in batch:
                 text = article.text or ""
@@ -91,11 +98,15 @@ class ArticleSummarizer:
                     )
                     continue
                 try:
-                    analysis = self.provider.analyze_article(
+                    result = self.provider.analyze_article(
                         title=article.title or "",
                         text=text,
                         source=article.source or "",
                     )
+                    usage.prompt_tokens += result.usage.prompt_tokens
+                    usage.completion_tokens += result.usage.completion_tokens
+                    usage.total_tokens += result.usage.total_tokens
+                    usage.model = result.usage.model
                     # Use a targeted UPDATE to avoid flushing unrelated fields
                     # (the JSON 'meta' column can cause serialization errors
                     # with mysql-connector-python's C extension).
@@ -103,10 +114,10 @@ class ArticleSummarizer:
                         update(Article)
                         .where(Article._id == article._id)
                         .values(
-                            summary=analysis.summary,
-                            key_points=json.dumps(analysis.key_points),
-                            implication=analysis.implication,
-                            category=analysis.category,
+                            summary=result.analysis.summary,
+                            key_points=json.dumps(result.analysis.key_points),
+                            implication=result.analysis.implication,
+                            category=result.analysis.category,
                         )
                     )
                 except Exception as e:

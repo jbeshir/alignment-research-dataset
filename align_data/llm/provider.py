@@ -15,10 +15,24 @@ class ArticleAnalysis:
     category: str
 
 
+@dataclass
+class TokenUsage:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    model: str = ""
+
+
+@dataclass
+class AnalysisResult:
+    analysis: ArticleAnalysis
+    usage: TokenUsage
+
+
 class LLMProvider(ABC):
     @abstractmethod
-    def analyze_article(self, title: str, text: str, source: str) -> ArticleAnalysis:
-        """Analyze an article and return structured analysis."""
+    def analyze_article(self, title: str, text: str, source: str) -> AnalysisResult:
+        """Analyze an article and return structured analysis with token usage."""
         ...
 
 

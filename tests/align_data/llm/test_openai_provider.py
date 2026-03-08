@@ -3,10 +3,10 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from align_data.llm.openai_provider import AnalysisResponse, MAX_TEXT_CHARS
-from align_data.llm.provider import ArticleAnalysis
+from align_data.llm.provider import AnalysisResult, ArticleAnalysis
 
 
-def _make_mock_response(parsed: AnalysisResponse):
+def _make_mock_response(parsed: AnalysisResponse, usage=None):
     """Build a mock OpenAI parse() response with the given parsed object."""
     message = MagicMock()
     message.parsed = parsed
@@ -14,6 +14,7 @@ def _make_mock_response(parsed: AnalysisResponse):
     choice.message = message
     response = MagicMock()
     response.choices = [choice]
+    response.usage = usage
     return response
 
 
@@ -45,11 +46,11 @@ def test_analyze_article_returns_analysis():
 
     result = provider.analyze_article("Title", "Some article text", "arxiv")
 
-    assert isinstance(result, ArticleAnalysis)
-    assert result.summary == "A summary"
-    assert result.key_points == ["point 1", "point 2"]
-    assert result.implication == "An implication"
-    assert result.category == "Interpretability"
+    assert isinstance(result, AnalysisResult)
+    assert result.analysis.summary == "A summary"
+    assert result.analysis.key_points == ["point 1", "point 2"]
+    assert result.analysis.implication == "An implication"
+    assert result.analysis.category == "Interpretability"
 
 
 def test_analyze_article_calls_parse_with_correct_args():
@@ -106,3 +107,40 @@ def test_analyze_article_handles_empty_text():
 
     user_content = provider.client.beta.chat.completions.parse.call_args[1]["messages"][1]["content"]
     assert "Article text:\n" in user_content
+
+
+def test_analyze_article_returns_token_usage():
+    provider = _make_provider()
+
+    parsed = AnalysisResponse(
+        summary="s", key_points=["p"], implication="i", category="Other",
+    )
+
+    usage = MagicMock()
+    usage.prompt_tokens = 100
+    usage.completion_tokens = 50
+    usage.total_tokens = 150
+
+    resp = _make_mock_response(parsed, usage=usage)
+    resp.model = "gpt-5-nano"
+    provider.client.beta.chat.completions.parse.return_value = resp
+
+    result = provider.analyze_article("Title", "Text", "source")
+
+    assert result.usage.prompt_tokens == 100
+    assert result.usage.completion_tokens == 50
+    assert result.usage.total_tokens == 150
+    assert result.usage.model == "gpt-5-nano"
+
+
+def test_analyze_article_no_usage_returns_zero_tokens():
+    provider = _make_provider()
+
+    parsed = AnalysisResponse(
+        summary="s", key_points=["p"], implication="i", category="Other",
+    )
+    provider.client.beta.chat.completions.parse.return_value = _make_mock_response(parsed, usage=None)
+
+    result = provider.analyze_article("Title", "Some text", "source")
+    assert result.analysis.summary == "s"
+    assert result.usage.total_tokens == 0

@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from align_data.embeddings.embedding_utils import openai_client, handle_openai_errors
-from align_data.llm.provider import ArticleAnalysis, LLMProvider
+from align_data.llm.provider import AnalysisResult, ArticleAnalysis, LLMProvider, TokenUsage
 from align_data.settings import LLM_MODEL, LLM_REASONING_EFFORT
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class OpenAIProvider(LLMProvider):
         self.client = openai_client
 
     @handle_openai_errors
-    def analyze_article(self, title: str, text: str, source: str) -> ArticleAnalysis:
+    def analyze_article(self, title: str, text: str, source: str) -> AnalysisResult:
         truncated_text = text[:MAX_TEXT_CHARS] if text else ""
 
         user_message = (
@@ -85,11 +85,23 @@ class OpenAIProvider(LLMProvider):
             reasoning_effort=LLM_REASONING_EFFORT,
         )
 
+        usage = TokenUsage()
+        if response.usage:
+            usage = TokenUsage(
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens,
+                model=response.model,
+            )
+
         parsed = response.choices[0].message.parsed
 
-        return ArticleAnalysis(
-            summary=parsed.summary,
-            key_points=parsed.key_points,
-            implication=parsed.implication,
-            category=parsed.category,
+        return AnalysisResult(
+            analysis=ArticleAnalysis(
+                summary=parsed.summary,
+                key_points=parsed.key_points,
+                implication=parsed.implication,
+                category=parsed.category,
+            ),
+            usage=usage,
         )
